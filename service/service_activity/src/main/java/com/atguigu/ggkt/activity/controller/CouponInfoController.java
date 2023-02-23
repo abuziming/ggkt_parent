@@ -30,6 +30,12 @@ public class CouponInfoController {
     @Autowired
     private CouponInfoService couponInfoService;
 
+    @ApiOperation(value="秒杀优惠券")
+    @PostMapping("seckill/{id}")
+    public Result seckillVoucher(@PathVariable("id") Long voucherId)
+    {
+        return couponInfoService.seckillVoucher(voucherId);
+    }
     @ApiOperation(value = "获取优惠券")
     @GetMapping("get/{id}")
     public Result get(@PathVariable String id) {

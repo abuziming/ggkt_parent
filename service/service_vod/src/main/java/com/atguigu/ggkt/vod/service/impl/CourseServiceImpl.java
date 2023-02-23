@@ -1,5 +1,6 @@
 package com.atguigu.ggkt.vod.service.impl;
 
+import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.json.JSONUtil;
 import com.alibaba.nacos.client.utils.JSONUtils;
 import com.atguigu.ggkt.System.RedisCacheKey;
@@ -7,6 +8,7 @@ import com.atguigu.ggkt.model.vod.Course;
 import com.atguigu.ggkt.model.vod.CourseDescription;
 import com.atguigu.ggkt.model.vod.Subject;
 import com.atguigu.ggkt.model.vod.Teacher;
+import com.atguigu.ggkt.result.Result;
 import com.atguigu.ggkt.vo.vod.*;
 import com.atguigu.ggkt.vod.mapper.CourseMapper;
 import com.atguigu.ggkt.vod.service.*;
@@ -133,7 +135,78 @@ public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> impleme
         }
         return courseFormVo;
     }
+    //通过id获取课程redis优化
+    @Override
+    public CourseFormVo getCourseCacheInfoById(Long id) {
+        //缓存穿透解决
+//       return queryWithPassThrough(id);
+        CourseFormVo courseFormVo = queryWithMutex(id);
+        if(courseFormVo==null)
+        {
+            return null;
+        }
+        return courseFormVo;
 
+    }
+    /**
+     * 缓存穿透解决方案
+     * @param id
+     * @return
+     */
+    public CourseFormVo queryWithPassThrough(Long id)
+    {
+        String s = stringRedisTemplate.opsForValue().get(RedisCacheKey.Course_Key + id);
+        if(s!=null)
+        {
+            CourseFormVo courseFormVo = JSONUtil.toBean(s, CourseFormVo.class);
+            return courseFormVo;
+        }
+        CourseFormVo courseInfoById = getCourseInfoById(id);
+        if(courseInfoById==null)
+        {
+            throw new RuntimeException("数据库未找到");
+        }
+
+        //存在 存入redis
+        stringRedisTemplate.opsForValue().set(RedisCacheKey.Course_Key+id,JSONUtil.toJsonStr(courseInfoById),RedisCacheKey.Course_TIME_TLL, TimeUnit.MINUTES);
+        return courseInfoById;
+    }
+    public CourseFormVo queryWithMutex(Long id)
+    {
+        String key=RedisCacheKey.Course_Key + id;
+        String s = stringRedisTemplate.opsForValue().get(key);
+        if(s!=null)
+        {
+            CourseFormVo courseFormVo = JSONUtil.toBean(s, CourseFormVo.class);
+            return courseFormVo;
+        }
+        //实现缓存重建
+         //1 获取锁
+        String lockKey="lock:course"+id;
+        CourseFormVo courseInfoById = null;
+        try {
+            boolean isLock=tryLock(lockKey);
+            if(!isLock)
+            {
+                Thread.sleep(50);//休眠等待
+                queryWithMutex(id);//递归
+            }
+            //数据库获取
+            courseInfoById = getCourseInfoById(id);
+            if(courseInfoById==null)
+            {
+                stringRedisTemplate.opsForValue().set(key,JSONUtil.toJsonStr(courseInfoById),RedisCacheKey.Course_TIME_TLL, TimeUnit.MINUTES);
+                throw new RuntimeException("数据库未找到");
+            }
+            //存在 存入redis
+            stringRedisTemplate.opsForValue().set(key,JSONUtil.toJsonStr(courseInfoById),RedisCacheKey.Course_TIME_TLL, TimeUnit.MINUTES);
+            //释放互斥锁
+            unlock(lockKey);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return courseInfoById;
+    }
     //修改课程信息
     @Override
     public void updateCourseId(CourseFormVo courseFormVo) {
@@ -288,22 +361,6 @@ public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> impleme
         return list;
     }
 
-    @Override
-    public CourseFormVo getCourseCacheInfoById(Long id) {
-        String s = stringRedisTemplate.opsForValue().get(RedisCacheKey.Course_Key + id);
-        if(s!=null)
-        {
-            CourseFormVo courseFormVo = JSONUtil.toBean(s, CourseFormVo.class);
-            return courseFormVo;
-        }
-        CourseFormVo courseInfoById = getCourseInfoById(id);
-        if(courseInfoById==null)
-        {
-            throw new RuntimeException("数据库未找到");
-        }
-        stringRedisTemplate.opsForValue().set(RedisCacheKey.Course_Key+id,JSONUtil.toJsonStr(courseInfoById),RedisCacheKey.Course_TIME_TLL, TimeUnit.MINUTES);
-        return courseInfoById;
-    }
 
     //获取这些id对应名称，进行封装，最终显示
     private Course getNameById(Course course) {
@@ -325,4 +382,25 @@ public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> impleme
         }
         return course;
     }
+
+    /**
+     * 获取锁
+     * @param key
+     * @return
+     */
+    private boolean tryLock(String key)
+    {
+        Boolean flag = stringRedisTemplate.opsForValue().setIfAbsent(key,"1",10,TimeUnit.SECONDS);
+        return BooleanUtil.isTrue(flag);
+    }
+
+    /**
+     * 释放锁
+     * @param key
+     */
+    private void unlock(String key)
+    {
+        stringRedisTemplate.delete(key);
+    }
+
 }

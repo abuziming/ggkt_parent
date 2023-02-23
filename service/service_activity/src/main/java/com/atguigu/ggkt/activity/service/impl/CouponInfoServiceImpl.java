@@ -48,6 +48,15 @@ public class CouponInfoServiceImpl extends ServiceImpl<CouponInfoMapper, CouponI
     @Autowired
     private UserInfoFeignClient userInfoFeignClient;
 
+    /**
+     * 优惠券秒杀
+     * @param voucherid
+     * @return
+     */
+    @Override
+    public Result seckillVoucher(Long voucherid) {
+        return  null;
+    }
     //获取已经使用优惠券列表（条件查询分页）
     @Override
     public IPage<CouponUse> selectCouponUsePage(Page<CouponUse> pageParam,
@@ -91,7 +100,12 @@ public class CouponInfoServiceImpl extends ServiceImpl<CouponInfoMapper, CouponI
         couponUse.setUsingTime(new Date());
          couponUseService.updateById(couponUse);
     }
-//redis 优化获取优惠券  key="coupon:"
+//redis 优化获取优惠券  key="coupon:"\
+    /**
+     * 获取优惠券 解决超卖问题
+     * @param id
+     * @return
+     */
     @Override
     public Result queryById(String id) {
         //缓存获取
@@ -111,6 +125,7 @@ public class CouponInfoServiceImpl extends ServiceImpl<CouponInfoMapper, CouponI
        redisTemplate.opsForValue().set(key,JSONUtil.toJsonStr(couponInfo),30L, TimeUnit.MINUTES);
         System.out.println(1);
         return null;
+
     }
 
     @Override
@@ -123,6 +138,8 @@ public class CouponInfoServiceImpl extends ServiceImpl<CouponInfoMapper, CouponI
           redisTemplate.delete("coupon:"+id);
           return Result.ok(couponInfo);
     }
+
+
 
     //根据用户id，通过远程调用得到用户信息
     private CouponUse getUserInfoById(CouponUse couponUse) {

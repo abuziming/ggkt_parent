@@ -27,4 +27,6 @@ public interface CouponInfoService extends IService<CouponInfo> {
    Result queryById(String id);
 
     Result update(CouponInfo couponInfo);
+
+    Result seckillVoucher(Long voucherid);
 }
